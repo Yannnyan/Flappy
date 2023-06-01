@@ -13,7 +13,7 @@ class FlappyEnvironment():
         xBirdPos = the x position of the bird
         pipePassed = the number of pipes the bird crossed
         """
-        pass
+        
 
     def crossOver(self,birdModel1, birdModel2):
         """
@@ -32,6 +32,7 @@ class FlappyEnvironment():
         Creates the next generation of birds
         """
         pass
+
     def initGeneration(self):
         """
         Creates the first generation of birds

@@ -5,14 +5,16 @@ import torch
 
 def closestPipeInd(pipes, birdPool: BirdPool):
         """
-        finds the closest pipe to the birds
+        finds the next pipe to the birds
         """
         xBird = birdPool.birds[0].x
         min_ind = 0
         min_val = math.inf
         for pipe_ind in range(len(pipes)):
-            cur_val = abs(pipes[pipe_ind]['x'] - xBird)
-            if cur_val < min_val:
+            xPipe = pipes[pipe_ind]['x']
+            cur_val = abs(xPipe - xBird)
+            # checks if the pipe is ahead of the bird and the pipe is the closest
+            if  xPipe > xBird and cur_val < min_val:
                 min_ind = pipe_ind
                 min_val = cur_val
         return min_ind
@@ -21,8 +23,8 @@ class Logic():
     """
     Contains all the logic for the information passing between modules
     """
-    def __init__(self) -> None:
-        self.environment = FlappyEnvironment()
+    def __init__(self, bird_count) -> None:
+        self.environment = FlappyEnvironment(bird_count)
         self.environment.initGeneration()
         self.device = torch.device('cpu')
     
@@ -38,6 +40,7 @@ class Logic():
 
     def passBirdInfo(self, upperPipes, lowerPipes, birdPool: BirdPool):
         """
+        passes the input to the model
         upperPipes = {x, y} distances to all upper pipes on screen
         lowerPipes = {x, y} distances to all lower pipes on screen
         """
@@ -52,11 +55,18 @@ class Logic():
                 events.append(brain.to_flap(brain.forward(inp)))
         return events
 
+    def nextGeneration(self):
+        """
+        runs the best fit algorithm for the current generation and inits the next generation
+        """
+        self.environment.nextGeneration()
+
     def reportCrash(self, info):
         """
         Reports if the bird has crashed
         """
-        
+        self.environment.fitFunction()
+
 
 
 

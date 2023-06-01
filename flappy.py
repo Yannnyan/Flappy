@@ -5,6 +5,7 @@ import pygame
 from pygame.locals import *
 from Logic import *
 from birdPool import *
+import time
 
 FPS = 30
 SCREENWIDTH  = 288
@@ -13,7 +14,9 @@ PIPEGAPSIZE  = 100 # gap between upper and lower part of pipe
 BASEY        = SCREENHEIGHT * 0.79
 # image, sound and hitmask  dicts
 IMAGES, SOUNDS, HITMASKS = {}, {}, {}
-logic = Logic()
+NUM_BIRDS = 10
+NUM_GENERATIONS = 2
+logic = Logic(NUM_BIRDS)
 
 # list of all possible players (tuple of 3 positions of flap)
 PLAYERS_LIST = (
@@ -62,7 +65,7 @@ def main():
     FPSCLOCK = pygame.time.Clock()
     SCREEN = pygame.display.set_mode((SCREENWIDTH, SCREENHEIGHT))
     pygame.display.set_caption('Flappy Bird')
-    birdPool = BirdPool(10)
+    birdPool = BirdPool(NUM_BIRDS)
     # numbers sprites for score display
     IMAGES['numbers'] = (
         pygame.image.load('assets/sprites/0.png').convert_alpha(),
@@ -136,8 +139,11 @@ def main():
             HITMASKS['players'].append(mask_tuple)
 
         movementInfo = showWelcomeAnimation(birdPool)
-        crashInfo = mainGame(movementInfo, birdPool)
-        logic.reportCrash(crashInfo)
+        # run NUM_GENERATIONS times
+        for generation in range(NUM_GENERATIONS):
+            logic.nextGeneration()
+            crashInfo = mainGame(movementInfo, birdPool, generation)
+
         showGameOverScreen(crashInfo)
 
 
@@ -197,7 +203,7 @@ def showWelcomeAnimation(birdPool: BirdPool):
         FPSCLOCK.tick(FPS)
 
 
-def mainGame(movementInfo, birdPool: BirdPool):
+def mainGame(movementInfo, birdPool: BirdPool, generation):
     score = playerIndex = loopIter = 0
     playerIndexGen = movementInfo['playerIndexGen']
 
@@ -223,29 +229,35 @@ def mainGame(movementInfo, birdPool: BirdPool):
         {'x': SCREENWIDTH + 200, 'y': newPipe1[1]['y']},
         {'x': SCREENWIDTH + 200 + (SCREENWIDTH / 2), 'y': newPipe2[1]['y']},
     ]
-
+    surfaces = []
     dt = FPSCLOCK.tick(FPS)/1000
     pipeVelX = -128 * dt
+    last_time = time.time()
 
     while True:
-        #replace with model output on birdpool
-        birds_events = logic.passBirdInfo(upperPipes,lowerPipes,birdPool)
-        print(birds_events)
-        for i in range(len(birds_events)):
-            birdEvent = birds_events[i]
-            if birdEvent == True:
-                if birdPool.birds[i].y > -2 * IMAGES['players'][i][0].get_height():
-                    birdPool.birds[i].VelY = birdPool.birds[i].FlapAcc
-                    birdPool.birds[i].Flapped = True
-                    SOUNDS['wing'].play()
+        # a x seconds passed then ask the model if to flap or not
+        if time.time() - last_time >= 0.3:
+            last_time = time.time()
+            birds_events = logic.passBirdInfo(upperPipes,lowerPipes,birdPool)
+            print(birds_events)
+            for i in range(len(birds_events)):
+                birdEvent = birds_events[i]
+                if birdEvent == True:
+                    if birdPool.birds[i].y > -2 * IMAGES['players'][i][0].get_height():
+                        birdPool.birds[i].VelY = birdPool.birds[i].FlapAcc
+                        birdPool.birds[i].Flapped = True
+                        SOUNDS['wing'].play()
+        crashed_birds = []
         for i in range(birdPool.birdNum):
+            if i in crashed_birds:
+                continue
             bird = birdPool.birds[i]
             # check for crash here
             crashTest = checkCrash({'x': bird.x, 'y': bird.y, 'index': playerIndex, 'id': i},
                                 upperPipes, lowerPipes)
-            #TODO: fix this so that when a bird crashes, it will remove the bird but not end the entire run
+            
             if crashTest[0]:
-                return {
+                crashInfo = {
                     'y': bird.y,
                     'groundCrash': crashTest[1],
                     'basex': basex,
@@ -253,9 +265,13 @@ def mainGame(movementInfo, birdPool: BirdPool):
                     'lowerPipes': lowerPipes,
                     'score': score,
                     'playerVelY': bird.VelY,
-                    'playerRot': bird.Rot
+                    'playerRot': bird.Rot,
+                    'id': bird.id
                 }
-
+                logic.reportCrash(crashInfo)
+                crashed_birds.append(i)
+                continue
+                
             # check for score
             playerMidPos = bird.x + IMAGES['players'][i][0].get_width() / 2
             for pipe in upperPipes:
@@ -291,9 +307,17 @@ def mainGame(movementInfo, birdPool: BirdPool):
             if bird.Rot <= bird.RotThr:
                 visibleRot = bird.Rot
             
-            playerSurface = pygame.transform.rotate(IMAGES['players'][i][playerIndex], visibleRot)
-            SCREEN.blit(playerSurface, (bird.x, bird.y))
+            if len(surfaces) < birdPool.birdNum:
+                playerSurface = pygame.transform.rotate(IMAGES['players'][i][playerIndex], visibleRot)
+                surfaces.append(playerSurface)
+            else:
+                surfaces[i] = pygame.transform.rotate(IMAGES['players'][i][playerIndex], visibleRot)
+            # bird.y = int(SCREENHEIGHT * 0.2)
+            print(bird.y, int(SCREENHEIGHT * 0.2))
 
+        # remove crashed birds
+        if len(crashed_birds) == birdPool.birdNum:
+            return crashInfo
         # move pipes to left
         for uPipe, lPipe in zip(upperPipes, lowerPipes):
             uPipe['x'] += pipeVelX
@@ -318,8 +342,13 @@ def mainGame(movementInfo, birdPool: BirdPool):
             SCREEN.blit(IMAGES['pipe'][1], (lPipe['x'], lPipe['y']))
 
         SCREEN.blit(IMAGES['base'], (basex, BASEY))
+        for i in range(len(surfaces)):
+            SCREEN.blit(surfaces[i], (birdPool.birds[i].x, birdPool.birds[i].y))
+
         # print score so player overlaps the score
-        showScore(score)
+        # showScore(score)
+        showGeneration(generation)
+
         pygame.display.update()
         FPSCLOCK.tick(FPS)
 
@@ -343,7 +372,6 @@ def showGameOverScreen(crashInfo):
     SOUNDS['hit'].play()
     if not crashInfo['groundCrash']:
         SOUNDS['die'].play()
-
     while True:
         for event in pygame.event.get():
             if event.type == QUIT or (event.type == KEYDOWN and event.key == K_ESCAPE):
@@ -375,7 +403,7 @@ def showGameOverScreen(crashInfo):
 
         SCREEN.blit(IMAGES['base'], (basex, BASEY))
         showScore(score)
-
+        
         playerSurface = pygame.transform.rotate(IMAGES['players'][0][1], playerRot)
         SCREEN.blit(playerSurface, (playerx,playery))
         SCREEN.blit(IMAGES['gameover'], (50, 180))
@@ -420,6 +448,22 @@ def showScore(score):
 
     for digit in scoreDigits:
         SCREEN.blit(IMAGES['numbers'][digit], (Xoffset, SCREENHEIGHT * 0.1))
+        Xoffset += IMAGES['numbers'][digit].get_width()
+
+
+
+def showGeneration(generation):
+    """displays score in center of screen"""
+    scoreDigits = [int(x) for x in list(str(generation))]
+    totalWidth = 0 # total width of all numbers to be printed
+
+    for digit in scoreDigits:
+        totalWidth += IMAGES['numbers'][digit].get_width()
+
+    Xoffset = (SCREENWIDTH - totalWidth) / 2
+
+    for digit in scoreDigits:
+        SCREEN.blit(IMAGES['numbers'][digit], (Xoffset, SCREENHEIGHT * 0.2))
         Xoffset += IMAGES['numbers'][digit].get_width()
 
 
