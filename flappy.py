@@ -7,51 +7,12 @@ from Logic import *
 from birdPool import *
 import time
 
-FPS = 30
-SCREENWIDTH  = 288
-SCREENHEIGHT = 512
-PIPEGAPSIZE  = 100 # gap between upper and lower part of pipe
-BASEY        = SCREENHEIGHT * 0.79
+from config import FPS,SCREENWIDTH,SCREENHEIGHT,PIPEGAPSIZE,BASEY,NUM_BIRDS,NUM_GENERATIONS,XBIRD,PLAYERS_LIST,\
+BACKGROUNDS_LIST, PIPES_LIST
+
 # image, sound and hitmask  dicts
 IMAGES, SOUNDS, HITMASKS = {}, {}, {}
-NUM_BIRDS = 10
-NUM_GENERATIONS = 2
-logic = Logic(NUM_BIRDS)
-
-# list of all possible players (tuple of 3 positions of flap)
-PLAYERS_LIST = (
-    # red bird
-    (
-        'assets/sprites/redbird-upflap.png',
-        'assets/sprites/redbird-midflap.png',
-        'assets/sprites/redbird-downflap.png',
-    ),
-    # blue bird
-    (
-        'assets/sprites/bluebird-upflap.png',
-        'assets/sprites/bluebird-midflap.png',
-        'assets/sprites/bluebird-downflap.png',
-    ),
-    # yellow bird
-    (
-        'assets/sprites/yellowbird-upflap.png',
-        'assets/sprites/yellowbird-midflap.png',
-        'assets/sprites/yellowbird-downflap.png',
-    ),
-)
-
-# list of backgrounds
-BACKGROUNDS_LIST = (
-    'assets/sprites/background-day.png',
-    'assets/sprites/background-night.png',
-)
-
-# list of pipes
-PIPES_LIST = (
-    'assets/sprites/pipe-green.png',
-    'assets/sprites/pipe-red.png',
-)
-
+logic = Logic(NUM_BIRDS, XBIRD)
 
 try:
     xrange
@@ -65,7 +26,6 @@ def main():
     FPSCLOCK = pygame.time.Clock()
     SCREEN = pygame.display.set_mode((SCREENWIDTH, SCREENHEIGHT))
     pygame.display.set_caption('Flappy Bird')
-    birdPool = BirdPool(NUM_BIRDS)
     # numbers sprites for score display
     IMAGES['numbers'] = (
         pygame.image.load('assets/sprites/0.png').convert_alpha(),
@@ -104,7 +64,7 @@ def main():
         randBg = random.randint(0, len(BACKGROUNDS_LIST) - 1)
         IMAGES['background'] = pygame.image.load(BACKGROUNDS_LIST[randBg]).convert()
         IMAGES['players'] = []
-        for i in range(birdPool.birdNum):
+        for i in range(NUM_BIRDS):
             # select random player sprites
             randPlayer = random.randint(0, len(PLAYERS_LIST) - 1)
             image_tuple = (
@@ -138,16 +98,18 @@ def main():
             )
             HITMASKS['players'].append(mask_tuple)
 
-        movementInfo = showWelcomeAnimation(birdPool)
+        movementInfo = showWelcomeAnimation()
         # run NUM_GENERATIONS times
         for generation in range(NUM_GENERATIONS):
-            logic.nextGeneration()
+            birdPool = logic.nextGeneration()
             crashInfo = mainGame(movementInfo, birdPool, generation)
-
+        best_rate = logic.environment.rateBirds()[0]
+        best_bird = logic.environment.currentGeneration[best_rate[0]]
+        torch.save(best_bird,"best_mode.pth")
         showGameOverScreen(crashInfo)
 
 
-def showWelcomeAnimation(birdPool: BirdPool):
+def showWelcomeAnimation():
     """Shows welcome screen animation of flappy bird"""
     # index of player to blit on screen
     playerIndex = 0
@@ -204,12 +166,13 @@ def showWelcomeAnimation(birdPool: BirdPool):
 
 
 def mainGame(movementInfo, birdPool: BirdPool, generation):
-    score = playerIndex = loopIter = 0
+    playerIndex = loopIter = 0
     playerIndexGen = movementInfo['playerIndexGen']
 
     # playerx, playery = int(SCREENWIDTH * 0.2), movementInfo['playery']
     for bird in birdPool.birds:
         bird.x, bird.y = int(SCREENWIDTH * 0.2), movementInfo['playery']
+        bird.score = 0
 
     basex = movementInfo['basex']
     baseShift = IMAGES['base'].get_width() - IMAGES['background'].get_width()
@@ -233,13 +196,14 @@ def mainGame(movementInfo, birdPool: BirdPool, generation):
     dt = FPSCLOCK.tick(FPS)/1000
     pipeVelX = -128 * dt
     last_time = time.time()
-
+    crashed_birds = []
+    start_time = time.time()
     while True:
         # a x seconds passed then ask the model if to flap or not
         if time.time() - last_time >= 0.3:
             last_time = time.time()
             birds_events = logic.passBirdInfo(upperPipes,lowerPipes,birdPool)
-            print(birds_events)
+            # print(birds_events)
             for i in range(len(birds_events)):
                 birdEvent = birds_events[i]
                 if birdEvent == True:
@@ -247,13 +211,12 @@ def mainGame(movementInfo, birdPool: BirdPool, generation):
                         birdPool.birds[i].VelY = birdPool.birds[i].FlapAcc
                         birdPool.birds[i].Flapped = True
                         SOUNDS['wing'].play()
-        crashed_birds = []
         for i in range(birdPool.birdNum):
-            if i in crashed_birds:
-                continue
             bird = birdPool.birds[i]
+            if bird.id in crashed_birds:
+                continue
             # check for crash here
-            crashTest = checkCrash({'x': bird.x, 'y': bird.y, 'index': playerIndex, 'id': i},
+            crashTest = checkCrash({'x': bird.x, 'y': bird.y, 'index': playerIndex, 'id': bird.id},
                                 upperPipes, lowerPipes)
             
             if crashTest[0]:
@@ -263,13 +226,14 @@ def mainGame(movementInfo, birdPool: BirdPool, generation):
                     'basex': basex,
                     'upperPipes': upperPipes,
                     'lowerPipes': lowerPipes,
-                    'score': score,
+                    'score': bird.score,
                     'playerVelY': bird.VelY,
                     'playerRot': bird.Rot,
-                    'id': bird.id
+                    'id': bird.id,
+                    'survive_time': time.time() - start_time,
                 }
                 logic.reportCrash(crashInfo)
-                crashed_birds.append(i)
+                crashed_birds.append(bird.id)
                 continue
                 
             # check for score
@@ -277,7 +241,7 @@ def mainGame(movementInfo, birdPool: BirdPool, generation):
             for pipe in upperPipes:
                 pipeMidPos = pipe['x'] + IMAGES['pipe'][0].get_width() / 2
                 if pipeMidPos <= playerMidPos < pipeMidPos + 4:
-                    score += 1
+                    bird.score += 1
                     SOUNDS['point'].play()
 
             # playerIndex basex change
@@ -313,7 +277,7 @@ def mainGame(movementInfo, birdPool: BirdPool, generation):
             else:
                 surfaces[i] = pygame.transform.rotate(IMAGES['players'][i][playerIndex], visibleRot)
             # bird.y = int(SCREENHEIGHT * 0.2)
-            print(bird.y, int(SCREENHEIGHT * 0.2))
+            # print(bird.y, int(SCREENHEIGHT * 0.2))
 
         # remove crashed birds
         if len(crashed_birds) == birdPool.birdNum:

@@ -1,32 +1,18 @@
 from birdPool import *
 import math
 from GeneticAlgorithm import *
+from utils import closestPipeInd
 import torch
-
-def closestPipeInd(pipes, birdPool: BirdPool):
-        """
-        finds the next pipe to the birds
-        """
-        xBird = birdPool.birds[0].x
-        min_ind = 0
-        min_val = math.inf
-        for pipe_ind in range(len(pipes)):
-            xPipe = pipes[pipe_ind]['x']
-            cur_val = abs(xPipe - xBird)
-            # checks if the pipe is ahead of the bird and the pipe is the closest
-            if  xPipe > xBird and cur_val < min_val:
-                min_ind = pipe_ind
-                min_val = cur_val
-        return min_ind
 
 class Logic():
     """
     Contains all the logic for the information passing between modules
     """
-    def __init__(self, bird_count) -> None:
+    def __init__(self, bird_count, xBird) -> None:
         self.environment = FlappyEnvironment(bird_count)
         self.environment.initGeneration()
         self.device = torch.device('cpu')
+        self.xBird = xBird
     
     def getInputTensor(self, upperPipes, lowerPipes, closest_pipe , bird: Bird):
         yPos = bird.y
@@ -45,7 +31,7 @@ class Logic():
         lowerPipes = {x, y} distances to all lower pipes on screen
         """
         events = []
-        closest_pipe = closestPipeInd(upperPipes,birdPool)
+        closest_pipe = closestPipeInd(upperPipes,self.xBird)
         for i in range(self.environment.init_bird_count):
             brain = self.environment.currentGeneration[i] # the model of the bird
             brain = brain.to(self.device)
@@ -55,17 +41,32 @@ class Logic():
                 events.append(brain.to_flap(brain.forward(inp)))
         return events
 
+
     def nextGeneration(self):
         """
         runs the best fit algorithm for the current generation and inits the next generation
         """
-        self.environment.nextGeneration()
+        if self.environment.gen_num != 0:
+            self.environment.nextGeneration()
+        self.environment.gen_num += 1
+        return BirdPool(self.environment.init_bird_count)
 
     def reportCrash(self, info):
         """
         Reports if the bird has crashed
         """
-        self.environment.fitFunction()
+        id = info['id']
+        score = info['score']
+        groundCrash = info['groundCrash']
+        rot = info['playerRot']
+        upperPipes = info['upperPipes']
+        lowerPipes = info['lowerPipes']
+        velY = info['playerVelY']
+        y = info['y']
+        survive_time = info['survive_time']
+        self.environment.fitFunction(score,groundCrash,rot,upperPipes,lowerPipes,velY,y,survive_time, id)
+
+
 
 
 

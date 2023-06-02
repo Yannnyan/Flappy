@@ -28,13 +28,12 @@ class FlappyBrain(nn.Module):
             return False
 
     def randomize_initialization(self):
-        pass
+        self.apply(init_weights)
 
-    def mutate_initialization(self):
-        pass
-
-
-
+def init_weights(m):
+    if isinstance(m, nn.Linear):
+        torch.nn.init.uniform_(m.weight,-0.125,0.125)
+        m.bias.data.fill_(0)
 
     
 
