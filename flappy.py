@@ -199,6 +199,7 @@ def mainGame(movementInfo, birdPool: BirdPool, generation):
     crashed_birds = []
     start_time = time.time()
     while True:
+        pygame.event.pump()
         # a x seconds passed then ask the model if to flap or not
         if time.time() - last_time >= 0.3:
             last_time = time.time()
@@ -230,7 +231,7 @@ def mainGame(movementInfo, birdPool: BirdPool, generation):
                     'playerVelY': bird.VelY,
                     'playerRot': bird.Rot,
                     'id': bird.id,
-                    'survive_time': time.time() - start_time,
+                    'survive_time': abs(time.time() - start_time),
                 }
                 logic.reportCrash(crashInfo)
                 crashed_birds.append(bird.id)

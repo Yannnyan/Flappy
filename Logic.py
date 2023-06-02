@@ -9,7 +9,7 @@ class Logic():
     Contains all the logic for the information passing between modules
     """
     def __init__(self, bird_count, xBird) -> None:
-        self.environment = FlappyEnvironment(bird_count)
+        self.environment = FlappyEnvironment(bird_count, 0.2)
         self.environment.initGeneration()
         self.device = torch.device('cpu')
         self.xBird = xBird
@@ -36,9 +36,12 @@ class Logic():
             brain = self.environment.currentGeneration[i] # the model of the bird
             brain = brain.to(self.device)
             bird = birdPool.birds[i] # bird parameters
-            inp = self.getInputTensor(upperPipes,lowerPipes,closest_pipe,bird)
-            with torch.no_grad():
-                events.append(brain.to_flap(brain.forward(inp)))
+            try:
+                inp = self.getInputTensor(upperPipes,lowerPipes,closest_pipe,bird)
+                with torch.no_grad():
+                    events.append(brain.to_flap(brain.forward(inp)))
+            except:
+                events.append(False)
         return events
 
 

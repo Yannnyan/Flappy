@@ -32,7 +32,7 @@ class FlappyBrain(nn.Module):
 
 def init_weights(m):
     if isinstance(m, nn.Linear):
-        torch.nn.init.uniform_(m.weight,-0.125,0.125)
+        torch.nn.init.normal_(m.weight,0,1)
         m.bias.data.fill_(0)
 
     

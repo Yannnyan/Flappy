@@ -4,10 +4,11 @@ from utils import closestPipeInd
 from config import XBIRD, SCREENHEIGHT
 import numpy as np
 
-GROUND_CRASH_PENALTY = -3
+GROUND_CRASH_PENALTY = -30
 VEL_OPOSITE_PIPE_PENALTY = -3
-EXTREME_Y_POSITION_PENALTY = -4
+EXTREME_Y_POSITION_PENALTY = -30
 PIPE_PASSED_REWARD = 10
+OUTSIDE_MIDDLE_PENALTY = -5
 
 
 
@@ -18,7 +19,10 @@ class FlappyEnvironment():
         self.currentGeneration = []
         self.birdRating = []
         self.gen_num = 0
-    
+        self.threshold_fail = 5
+        self.combo_fail = 0
+        self.last_result = 0
+
 
     def fitFunction(self, score:int , groundCrash: bool, rot: int, uperPipes: list, lowerPipes: list, velY: int, y: int,\
                     survive_time, id: int):
@@ -33,30 +37,32 @@ class FlappyEnvironment():
         """
         closest_pipe = closestPipeInd(lowerPipes, XBIRD)
         bird_rate = 0
+        try:
+            # reward positively if bird passed alot of pipes
+            bird_rate += score * PIPE_PASSED_REWARD
 
-        # reward positively if bird passed alot of pipes
-        bird_rate += score * PIPE_PASSED_REWARD
+            # penalize is bird crashes into the ground
+            bird_rate += GROUND_CRASH_PENALTY if groundCrash else 0
+            
+            # penalize if the bird is above the upper pipe and still goes up, or 
+            # if the bird is below the lower pipe and stil lgoes down
+            # bird_rate += np.sqrt(abs(velY)) * VEL_OPOSITE_PIPE_PENALTY if (velY > 0 and lowerPipes[closest_pipe]['y'] > y) or \
+            #                                         (velY < 0 and uperPipes[closest_pipe]['y'] < y) else 0
+            
+            # bird_rate += OUTSIDE_MIDDLE_PENALTY if (y <= lowerPipes[closest_pipe]['y'] or y >= uperPipes[closest_pipe]['y']) else 0
 
-        # penalize is bird crashes into the ground
-        bird_rate += GROUND_CRASH_PENALTY if groundCrash else 0
-        
-        # penalize if the bird is above the upper pipe and still goes up, or 
-        # if the bird is below the lower pipe and stil lgoes down
-        # bird_rate += VEL_OPOSITE_PIPE_PENALTY if (velY > 0 and lowerPipes[closest_pipe]['y'] > y) or \
-        #                                         (velY < 0 and uperPipes[closest_pipe]['y'] < y) else 0
-        
-        # penalize if the bird surpasses the screen height (it's assumed that it crashed there)
-        bird_rate += EXTREME_Y_POSITION_PENALTY if (y >= SCREENHEIGHT) else 0
+            # penalize if the bird surpasses the screen height (it's assumed that it crashed there)
+            bird_rate += EXTREME_Y_POSITION_PENALTY if (y <= 0) else 0
 
-        # reward for being close to the middle of the two pipes
-        # bird_rate += np.e * np.e ** -np.abs(y - ((lowerPipes[closest_pipe]['y'] + uperPipes[closest_pipe]['y']) / 2))
+            # reward for being close to the middle of the two pipes
+            # bird_rate += np.e ** -np.abs(y - ((lowerPipes[closest_pipe]['y'] + uperPipes[closest_pipe]['y']) / 2))
 
-        # reward for making it alive more often then not
-        bird_rate += survive_time / 60
+            # reward for making it alive more often then not
+            # bird_rate += survive_time
+        except:
+            pass
 
         self.birdRating.append((id, bird_rate))
-
-        
 
     
     def mutateParam(self, parameter: float):
@@ -142,17 +148,27 @@ class FlappyEnvironment():
         num_parents = len(parent_birds_ratings)
         num_matchings = int(self.init_bird_count / 2)
         generated_children = []
-        need_mutation_ind = np.random.choice(num_matchings,int(num_matchings / 6),False)
+        need_mutation_ind = np.random.choice(num_matchings,int(num_matchings / 3),False)
+        probs = []
+        s = 0
+        # sum raings
+        for rate in parent_birds_ratings:
+            s += np.e ** rate[1]
+        for rate in parent_birds_ratings:
+            probs.append((np.e ** rate[1]) / s)
+        
         for i in range(num_matchings):
             # perform simple matching of two randomly selected parents
-            parent1 = np.random.randint(0,num_parents)
-            parent2 = np.random.randint(0,num_parents)
+            p1 = np.random.choice(len(parent_birds_ratings), p=probs)
+            p2 = np.random.choice(len(parent_birds_ratings), p=probs)
+            parent1 = parent_birds_ratings[p1][0]
+            parent2 = parent_birds_ratings[p2][0]
             if i in need_mutation_ind:
                 mutate = True
             else:
                 mutate = False
-            child1, child2 = self.crossOver(self.currentGeneration[parent_birds_ratings[parent1][0]], 
-                           self.currentGeneration[parent_birds_ratings[parent2][0]], mutate)
+            child1, child2 = self.crossOver(self.currentGeneration[parent1], 
+                           self.currentGeneration[parent2], mutate)
             generated_children.append(child1)
             generated_children.append(child2)
         return generated_children
@@ -165,6 +181,16 @@ class FlappyEnvironment():
         ratings = self.rateBirds()
         print(ratings)
         best_birds_ratings = ratings[:15]
+        # if the birds failed more than threshold times then increase mutate precentile
+        if best_birds_ratings[0][1] <= self.last_result:
+            self.combo_fail += 1
+        else:
+            self.combo_fail = 0
+            self.mutate_precentile = 0.9
+        self.last_result = best_birds_ratings[0][1]
+        if self.combo_fail >= self.threshold_fail:
+            print("mutating increased")
+            self.mutate_precentile = 0.9
         # perform crossover on best birds
         next_gen = self.matchParents(best_birds_ratings)
         self.birdRating = [] # lose all previous ratings
